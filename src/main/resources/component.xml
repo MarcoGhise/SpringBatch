@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:batch="http://www.springframework.org/schema/batch" xmlns:util="http://www.springframework.org/schema/util"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:task="http://www.springframework.org/schema/task"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xsi:schemaLocation="http://www.springframework.org/schema/batch 
+		http://www.springframework.org/schema/batch/spring-batch.xsd
+		http://www.springframework.org/schema/beans 
+		http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/util 
+		http://www.springframework.org/schema/util/spring-util.xsd
+		http://www.springframework.org/schema/task
+        http://www.springframework.org/schema/task/spring-task.xsd	
+        http://www.springframework.org/schema/context
+		http://www.springframework.org/schema/context/spring-context.xsd        	
+		">
+
+	<context:component-scan base-package="it.blog.springbatch.flightradar" />
+
+	<bean id="flightReader" class="org.springframework.batch.item.file.FlatFileItemReader"
+		scope="step">
+
+		<property name="resource" value="file:input/#{jobParameters['filename']}" />
+
+		<!-- Skip the first line of the file because this is the header that defines 
+			the fields -->
+		<property name="linesToSkip" value="1" />
+
+		<!-- Defines how we map lines to objects -->
+		<property name="lineMapper">
+			<bean class="org.springframework.batch.item.file.mapping.DefaultLineMapper">
+
+				<!-- The lineTokenizer divides individual lines up into units of work -->
+				<property name="lineTokenizer">
+					<bean
+						class="org.springframework.batch.item.file.transform.DelimitedLineTokenizer">
+
+						<!-- Names of the CSV columns -->
+						<property name="names"
+							value="field0,field1,
+									field2,field3,
+									field4,field5,
+									field6,field7,
+									field8,field9,
+									field10,field11,
+									field12,field13,
+									field14,field15,
+									field16,field17,
+									field18" />
+					</bean>
+				</property>
+
+				<property name="fieldSetMapper">
+					<bean class="it.blog.springbatch.flightradar.mapper.FlightFieldSetMapper" />
+				</property>
+			</bean>
+		</property>
+	</bean>
+	
+	<bean id="flightProcessor" class="it.blog.springbatch.flightradar.process.FlightProcessor"
+		scope="step">
+		<property name="fileImport" value="#{jobParameters['filename']}" />
+	</bean>
+
+	<bean id="flightWriter" class="it.blog.springbatch.flightradar.FlightWriter">
+		<property name="resource" value="file:output/output.csv" />
+		<property name="footerCallback" ref="flightWriter" />
+		<property name="appendAllowed" value="true" />
+		<property name="lineAggregator">
+			<bean
+				class="org.springframework.batch.item.file.transform.DelimitedLineAggregator">
+				<property name="delimiter" value="," />
+				<property name="fieldExtractor">
+					<bean
+						class="org.springframework.batch.item.file.transform.BeanWrapperFieldExtractor">
+						<property name="names" value="name, counter" />
+					</bean>
+				</property>
+			</bean>
+		</property>
+
+	</bean>
+
+	<bean id="flatFileItemWriterFrom" class="org.springframework.batch.item.file.FlatFileItemWriter"
+		scope="step">
+		<property name="resource" value="file:output/output_from_#{jobParameters['filename']}.csv" />
+		<property name="appendAllowed" value="true" />
+		<property name="lineAggregator">
+			<bean
+				class="org.springframework.batch.item.file.transform.DelimitedLineAggregator">
+				<property name="delimiter" value="," />
+				<property name="fieldExtractor">
+					<bean
+						class="org.springframework.batch.item.file.transform.BeanWrapperFieldExtractor">
+						<property name="names" value="from, count" />
+					</bean>
+				</property>
+			</bean>
+		</property>
+	</bean>
+
+	<bean id="flatFileItemWriterTo" class="org.springframework.batch.item.file.FlatFileItemWriter"
+		scope="step">
+		<property name="resource" value="file:output/output_to_#{jobParameters['filename']}.csv" />
+		<property name="appendAllowed" value="true" />
+		<property name="lineAggregator">
+			<bean
+				class="org.springframework.batch.item.file.transform.DelimitedLineAggregator">
+				<property name="delimiter" value="," />
+				<property name="fieldExtractor">
+					<bean
+						class="org.springframework.batch.item.file.transform.BeanWrapperFieldExtractor">
+						<property name="names" value="to, count" />
+					</bean>
+				</property>
+			</bean>
+		</property>
+	</bean>
+	
+	
+	
+	<bean id="mysqlItemWriter"
+		class="org.springframework.batch.item.database.JdbcBatchItemWriter">
+		<property name="dataSource" ref="dataSource" />
+		<property name="sql">
+			<value>
+            <![CDATA[Insert into FLIGHT_REPORT(number, `from`, `to`, file_import) values (:flightNumber, :from, :to, :fileImport);]]>
+			</value>
+		</property>
+		<!-- It will take care matching between object property and sql name parameter -->
+		<property name="itemSqlParameterSourceProvider">
+			<bean
+				class="org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider" />
+		</property>
+	</bean>
+
+	<bean id="mySqlItemReaderFrom"
+		class="org.springframework.batch.item.database.JdbcCursorItemReader"
+		scope="step">
+		<property name="dataSource" ref="dataSource" />
+		<property name="sql" value="SELECT `from`, count(*) as counter FROM stresstest.flight_report group by `from`;" />
+		<property name="rowMapper">
+			<bean class="it.blog.springbatch.flightradar.mapper.AirportRowMapper" />
+		</property>
+	</bean>
+	
+	<bean id="mySqlItemReaderTo"
+		class="org.springframework.batch.item.database.JdbcCursorItemReader"
+		scope="step">
+		<property name="dataSource" ref="dataSource" />
+		<property name="sql" value="SELECT `to`, count(*) as counter FROM stresstest.flight_report group by `to`;" />
+		<property name="rowMapper">
+			<bean class="it.blog.springbatch.flightradar.mapper.AirportRowMapper" />
+		</property>
+	</bean>
+	
+	<!-- Run every 30 seconds -->
+	<task:scheduled-tasks>
+		<task:scheduled ref="runScheduler" method="run"
+			cron="*/30 * * * * *" />
+	</task:scheduled-tasks>
+	
+	<bean id="runScheduler" class="it.blog.springbatch.flightradar.RunScheduler" />
+
+
+</beans>
